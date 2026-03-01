@@ -7,7 +7,7 @@ typedef struct{
     double pitch;
 
     double P[4]; // 2x2 covariance variance matrix
-    double Q[2]; // 2x2, but its completely diagonal
+    double Q[4]; // 2x2, 
     double R[3]; // 3x3, but completely diagonal
 
 

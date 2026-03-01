@@ -8,7 +8,7 @@ typedef struct{
 
     double P[4]; // 2x2 covariance variance matrix
     double Q[4]; // 2x2, 
-    double R[3]; // 3x3, but completely diagonal
+    double R[3]; // 3x3, but completely diagonal    
 
 
 } KRP;

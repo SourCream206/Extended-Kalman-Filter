@@ -38,7 +38,7 @@ void matMult(double *A, double *B, double *C, int rA, int cA, int cB){
     }
 }
 
-void matTransgender(double *A, double *AT, int N, int M){
+void matTranspose(double *A, double *AT, int N, int M){
     for (int i = 0; i< N; i++){
         for (int j = 0; j<M; j++){
             AT[j*N + i] = A[i*M + j];
@@ -84,7 +84,7 @@ void KalmanRPP(KRP *krp, struct Gstruct *gyro, double t){
     
     // Calculate P = FPFt + Q 
     matMult(F,krp->P,FP, 2,2,2);
-    matTransgender(F,Ft, 2,2);
+    matTranspose(F,Ft, 2,2);
     matMult(FP,Ft,FPFt, 2,2,2);
     matAdd(FPFt, krp->Q, krp->P, 2, 2); 
 }
@@ -149,7 +149,7 @@ void KalmanRP(KRP *krp, struct Astruct *acc){
 
     
     
-    matTransgender(H, Ht, 3, 2);
+    matTranspose(H, Ht, 3, 2);
     // Kalman gain = P * H' / ( HPH' + R)
     double HP[6];   // 3x2 * 2x2 = 3x2
     matMult(H, krp->P, HP, 3, 2, 2);

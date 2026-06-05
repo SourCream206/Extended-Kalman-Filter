@@ -8,6 +8,13 @@ typedef struct{
     double R[9]; // 3x3,     
 } KRP;
 
+typedef struct {
+    double x[2];   // [altitude (m), vertical velocity (m/s)] 
+    double P[4];   // 2x2 covariance                          
+    double Q[4];   // 2x2                      
+    double R;      // scalar barometer measurement noise (Pa²) 
+} KAlt;
+
 // In the actual code, mpu.get_gyro is never used in the actual thing so that needs to be done, Gstruct has double XAxis, YAxis, and ZAxis
 // Gstruct imu_gyr 
 // mpu.get_gyro(0, &imu_gyr); // comes from double GyroRange[4]={131.0,65.5,32.8,16.4};, picking 0,1,2,3 chooses sensitivity of the gyro
@@ -178,9 +185,94 @@ void KalmanRP(KRP *krp, struct Astruct *acc){
     matMult(KH, krp->P, Ptemp,2,2,2);
     
     for(int i=0;i<4;i++) 
-        KH[i] = Ptemp[i];
+        krp->P[i] = Ptemp[i];
 
     krp->roll = krp->roll + K[0] * (accX - h[0]) + K[1]*(accY - h[1]) + K[2]*(accZ - h[2]);
     krp->pitch = krp->pitch + K[3]*(accX - h[0]) + K[4]*(accY - h[1]) + K[5]*(accZ - h[2]);
 
+}
+
+ //Pinit — initial covariance diagonal
+//q_alt — altitude process noise
+//q_vz — velocity process noise
+//r_baro — baro measurement noise 
+void KAltInit(KAlt *ka, double Pinit, double q_alt, double q_vz, double r_baro) {
+    ka->x[0] = 0.0;
+    ka->x[1] = 0.0;
+ 
+    ka->P[0] = Pinit; ka->P[1] = 0.0;
+    ka->P[2] = 0.0;   ka->P[3] = Pinit;
+ 
+    ka->Q[0] = q_alt; ka->Q[1] = 0.0;
+    ka->Q[2] = 0.0;   ka->Q[3] = q_vz;
+ 
+    ka->R = r_baro;
+}
+ 
+void KAltPredict(KAlt *ka, KRP *krp, struct Astruct *acc, double dt) {
+    double cr = cos(krp->roll),  sr = sin(krp->roll);
+    double cp = cos(krp->pitch), sp = sin(krp->pitch);
+
+    double az_world = -sp * acc->XAxis
+                    + sr*cp * acc->YAxis
+                    + cr*cp * acc->ZAxis - 9.81;
+
+    double alt = ka->x[0];
+    double vz  = ka->x[1];
+ 
+    ka->x[0] = alt + vz * dt + 0.5 * az_world * dt * dt;
+    ka->x[1] = vz  + az_world * dt;
+ 
+    /* P = F*P*Fᵀ + Q */
+    double p00 = ka->P[0], p01 = ka->P[1];
+    double p10 = ka->P[2], p11 = ka->P[3];
+ 
+    double fp00 = p00 + dt * p10;
+    double fp01 = p01 + dt * p11;
+    double fp10 = p10;
+    double fp11 = p11;
+ 
+    ka->P[0] = fp00+ dt * fp01 + ka->Q[0];
+    ka->P[1] = fp01             + ka->Q[1];
+    ka->P[2] = fp10 + dt * fp11 + ka->Q[2];
+    ka->P[3] = fp11             + ka->Q[3];
+}
+// takes inoput of pressure, temperature in kelvin, annd initial pressure
+void KAltUpdate(KAlt *ka, double pressure_pa, double temp_k, double p0_pa) {
+    double alt = ka->x[0];
+    
+
+
+    double h_pred = p0_pa * exp(-alt / ((8.31446 * temp_k) / (0.028964  * 9.80665  )));
+    double Hj0    = -(p0_pa / ((8.31446 * temp_k) / (0.028964  * 9.80665  ))) * exp(-alt / ((8.31446 * temp_k) / (0.028964  * 9.80665  )));
+
+    double Hj1    = 0.0;
+ 
+    /*  S (*/
+    double HP0 = Hj0 * ka->P[0] + Hj1 * ka->P[2];
+    double HP1 = Hj0 * ka->P[1] + Hj1 * ka->P[3];
+    double S   = HP0 * Hj0 + HP1 * Hj1 + ka->R;
+ 
+    /* Kalman gain K */
+    double K0 = (ka->P[0] * Hj0 + ka->P[1] * Hj1) / S;
+    double K1 = (ka->P[2] * Hj0 + ka->P[3] * Hj1) / S;
+ 
+    /* multiplier for update */
+    double y = pressure_pa - h_pred;
+ 
+    /* State update */
+    ka->x[0] += K0 * y;
+    ka->x[1] += K1 * y;
+ 
+    /* Covariance matrix update  P = (I - K*H)*P */
+    double KH00 = K0 * Hj0,  KH01 = K0 * Hj1;
+    double KH10 = K1 * Hj0,  KH11 = K1 * Hj1;
+ 
+    double p00 = ka->P[0], p01 = ka->P[1];
+    double p10 = ka->P[2], p11 = ka->P[3];
+ 
+    ka->P[0] = (1.0 - KH00)*p00 - KH01*p10;
+    ka->P[1] = (1.0 - KH00)*p01 - KH01*p11;
+    ka->P[2] = -KH10*p00 + (1.0 - KH11)*p10;
+    ka->P[3] = -KH10*p01 + (1.0 - KH11)*p11;
 }
